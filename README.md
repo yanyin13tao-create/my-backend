@@ -1,4 +1,4 @@
-# my-backend
+# Mintea
 
 Plain JavaScript test backend using Node's built-in HTTP module. No Express,
 TypeScript, or npm dependencies are required. Every request returns HTTP 200
@@ -8,7 +8,7 @@ The server listens on 0.0.0.0, using PORT or 3000 by default.
 ## Project structure
 
 ```text
-my-backend/
+mintea/
 |-- src/
 |   `-- server.js
 |-- docker/
@@ -47,7 +47,7 @@ certificate when its container starts. No repository or certificate bind mounts
 are used.
 
 For a standalone backend image build from the repository root, use
-`docker build -f docker/Dockerfile -t my-backend .`.
+`docker build -f docker/Dockerfile -t mintea-backend .`.
 
 The generated self-signed certificate is suitable only for this test and will
 cause a browser trust warning. Use a managed secret or trusted certificate for
@@ -59,6 +59,18 @@ Suggested commands for your existing Jenkins deployment stage:
 docker compose config --quiet
 docker compose up --build -d
 docker compose exec -T nginx nginx -t
+```
+
+Compose uses `mintea` as its project name. Docker therefore names the containers
+`mintea-backend-1` and `mintea-nginx-1`, and names the locally built images
+`mintea-backend` and `mintea-nginx`.
+
+When deploying this rename for the first time, remove the old Compose project
+before starting Mintea so it releases ports 80 and 443:
+
+```sh
+docker compose -p my-backend down
+docker compose up --build -d
 ```
 
 Compose starts the backend on its private network. Nginx redirects port 80 to

@@ -1,4 +1,4 @@
-name: my-backend
+name: mintea
 
 services:
   backend:

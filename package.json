@@ -1,8 +1,8 @@
 {
-  "name": "my-backend",
+  "name": "mintea",
   "version": "1.0.0",
   "private": true,
-  "description": "Node.js HTTP test backend behind Nginx HTTPS",
+  "description": "Mintea Node.js backend behind Nginx HTTPS",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
