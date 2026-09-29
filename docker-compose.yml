@@ -1,39 +1,22 @@
+name: my-backend
+
 services:
   backend:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: node-container
     restart: always
     environment:
       NODE_ENV: production
       PORT: "3000"
 
   nginx:
-    image: nginx:stable-alpine
-    container_name: nginx-container
+    build:
+      context: .
+      dockerfile: docker/nginx/Dockerfile
     restart: always
     ports:
       - "80:80"
       - "443:443"
-    volumes:
-      - type: bind
-        source: ${HOST_WORKSPACE:-.}/docker/nginx/default.conf
-        target: /etc/nginx/conf.d/default.conf
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: /etc/ssl/certs/nginx-selfsigned.crt
-        target: /etc/ssl/certs/nginx-selfsigned.crt
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: /etc/ssl/private/nginx-selfsigned.key
-        target: /etc/ssl/private/nginx-selfsigned.key
-        read_only: true
-        bind:
-          create_host_path: false
     depends_on:
       - backend

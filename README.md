@@ -14,6 +14,8 @@ my-backend/
 |-- docker/
 |   |-- Dockerfile
 |   `-- nginx/
+|       |-- Dockerfile
+|       |-- 40-generate-self-signed-cert.sh
 |       `-- default.conf
 |-- docker-compose.yml
 |-- package.json
@@ -33,24 +35,23 @@ without extra flags. The build context remains the repository root, where
 `docker/Dockerfile` uses Node.js 24 Alpine and starts `src/server.js` directly. No build
 step is needed for JavaScript. npm ci uses the included dependency-free lockfile.
 
-Run deployment commands from the repository checkout on the deployment host.
-The Jenkins agent needs Docker Engine access and Docker Compose v2, and ports
-80 and 443 must be available. If Jenkins uses a remote Docker daemon or runs
-inside a container, bind-mount source paths must exist on the Docker daemon's
-host, including the checkout path for `docker/nginx/default.conf`.
+The Jenkins container needs the Docker CLI with Compose v2 and access to a
+Docker daemon. A common setup mounts the host socket into Jenkins as
+`/var/run/docker.sock`. Ports 80 and 443 must be available on the Docker host.
 
-Compose mounts that file at `/etc/nginx/conf.d/default.conf` inside Nginx.
+Both images are built from the repository checkout. The Docker client sends
+the build contexts to the daemon, so the Jenkins workspace does not need to be
+available as a bind-mount path on the Docker host. The Nginx image copies
+`docker/nginx/default.conf` into the image and creates a self-signed localhost
+certificate when its container starts. No repository or certificate bind mounts
+are used.
+
 For a standalone backend image build from the repository root, use
 `docker build -f docker/Dockerfile -t my-backend .`.
 
-Provision these files on the deployment host before starting Compose:
-
-- /etc/ssl/certs/nginx-selfsigned.crt
-- /etc/ssl/private/nginx-selfsigned.key
-
-The certificate and private key must match. They are mounted read-only into
-Nginx and must not be committed to Git. A self-signed certificate is suitable
-for this test; browsers will display a trust warning.
+The generated self-signed certificate is suitable only for this test and will
+cause a browser trust warning. Use a managed secret or trusted certificate for
+a public deployment.
 
 Suggested commands for your existing Jenkins deployment stage:
 
@@ -77,3 +78,5 @@ The -k option is only for the self-signed test certificate.
 
 No Jenkinsfile is included; use these commands in your existing pipeline.
 The application does not load .env files. Set runtime variables through Compose.
+If Jenkins uses Docker-in-Docker rather than the host socket, ports 80 and 443
+are published on that Docker daemon container and must also be exposed from it.
