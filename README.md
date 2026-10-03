@@ -39,12 +39,24 @@ The Jenkins container needs the Docker CLI with Compose v2 and access to a
 Docker daemon. A common setup mounts the host socket into Jenkins as
 `/var/run/docker.sock`. Ports 80 and 443 must be available on the Docker host.
 
-Both images are built from the repository checkout. The Docker client sends
-the build contexts to the daemon, so the Jenkins workspace does not need to be
-available as a bind-mount path on the Docker host. The Nginx image copies
+Both backend images are built from the repository checkout. The Docker client
+sends the build contexts to the daemon, so the Jenkins workspace does not need
+to be available as a bind-mount path on the Docker host. The Nginx image copies
 `docker/nginx/default.conf` into the image and creates a self-signed localhost
 certificate when its container starts. No repository or certificate bind mounts
 are used.
+
+The public Nginx container is also the shared frontend/backend edge. Build the
+frontend artifact image first from the sibling `my-frontend` project:
+
+```sh
+docker build -t my-frontend-static:latest ../my-frontend
+```
+
+Then build or deploy this backend project. `docker/nginx/Dockerfile` copies the
+frontend artifact image's `/usr/share/nginx/html` into the backend Nginx image.
+The image can be overridden with `--build-arg FRONTEND_IMAGE=<image:tag>` if
+Jenkins publishes the frontend artifact under a different tag.
 
 For a standalone backend image build from the repository root, use
 `docker build -f docker/Dockerfile -t mintea-backend .`.
@@ -74,8 +86,9 @@ docker compose up --build -d
 ```
 
 Compose starts the backend on its private network. Nginx redirects port 80 to
-HTTPS on port 443, then proxies requests to backend:3000. The backend's port
-is not published directly to the host.
+HTTPS on port 443, serves the React frontend at `/`, and proxies `/api/`
+requests to `backend:3000`. The backend's port is not published directly to the
+host.
 
 Optional verification on the deployment host after startup:
 
