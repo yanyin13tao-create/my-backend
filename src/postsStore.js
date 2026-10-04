@@ -184,16 +184,30 @@ function createPostsStore(redis) {
       return null;
     }
 
-    const likeResult = await redis.sAdd(getPostLikesKey(id), clientId);
-    if (likeResult === 0) {
-      return { liked: false, post };
+    const likesKey = getPostLikesKey(id);
+    const dislikesKey = getPostDislikesKey(id);
+    const alreadyLiked = await redis.sIsMember(likesKey, clientId);
+
+    if (alreadyLiked) {
+      await redis.sRem(likesKey, clientId);
+      post.count = Math.max(0, Number(post.count || 0) - 1);
+      await replacePosts(posts);
+      await bumpVersion();
+      return { disliked: false, liked: false, post };
     }
 
+    const removedDislike = await redis.sRem(dislikesKey, clientId);
+    await redis.sAdd(likesKey, clientId);
+
     post.count = Number(post.count || 0) + 1;
+    if (removedDislike) {
+      post.dislikeCount = Math.max(0, Number(post.dislikeCount || 0) - 1);
+    }
+
     await replacePosts(posts);
     await bumpVersion();
 
-    return { liked: true, post };
+    return { disliked: false, liked: true, post };
   }
 
   async function dislikePost(id, clientId) {
@@ -204,23 +218,36 @@ function createPostsStore(redis) {
       return null;
     }
 
-    const dislikeResult = await redis.sAdd(getPostDislikesKey(id), clientId);
-    if (dislikeResult === 0) {
-      return { deleted: false, disliked: false, post };
+    const likesKey = getPostLikesKey(id);
+    const dislikesKey = getPostDislikesKey(id);
+    const alreadyDisliked = await redis.sIsMember(dislikesKey, clientId);
+
+    if (alreadyDisliked) {
+      await redis.sRem(dislikesKey, clientId);
+      post.dislikeCount = Math.max(0, Number(post.dislikeCount || 0) - 1);
+      await replacePosts(posts);
+      await bumpVersion();
+      return { deleted: false, disliked: false, liked: false, post };
     }
 
+    const removedLike = await redis.sRem(likesKey, clientId);
+    await redis.sAdd(dislikesKey, clientId);
+
+    if (removedLike) {
+      post.count = Math.max(0, Number(post.count || 0) - 1);
+    }
     post.dislikeCount = Number(post.dislikeCount || 0) + 1;
 
     if (post.dislikeCount >= config.dislikesToDeletePost) {
       await replacePosts(posts.filter((currentPost) => currentPost.id !== id));
       await deleteVoteSets([id]);
       await bumpVersion();
-      return { deleted: true, disliked: true, postId: id };
+      return { deleted: true, disliked: true, liked: false, postId: id };
     }
 
     await replacePosts(posts);
     await bumpVersion();
-    return { deleted: false, disliked: true, post };
+    return { deleted: false, disliked: true, liked: false, post };
   }
 
   return { addPost, dislikePost, likePost, listPosts };
