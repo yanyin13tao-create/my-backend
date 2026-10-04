@@ -8,6 +8,11 @@
   "scripts": {
     "start": "node src/server.js"
   },
-  "engines": { "node": ">=24" },
-  "license": "ISC"
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "redis": "^5.12.1"
+  }
 }

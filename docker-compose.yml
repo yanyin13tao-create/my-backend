@@ -1,6 +1,18 @@
 name: mintea
 
 services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   backend:
     build:
       context: .
@@ -9,6 +21,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
+      REDIS_URL: redis://redis:6379
+      MAX_POSTS: "100"
+    depends_on:
+      redis:
+        condition: service_healthy
 
   nginx:
     build:
@@ -20,3 +37,6 @@ services:
       - "443:443"
     depends_on:
       - backend
+
+volumes:
+  redis-data:
