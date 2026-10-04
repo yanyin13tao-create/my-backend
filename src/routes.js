@@ -12,6 +12,11 @@ function getLikePostId(pathname) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function getDislikePostId(pathname) {
+  const match = pathname.match(/^\/(?:api\/)?posts\/([^/]+)\/dislike$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 function createRequestHandler({ postsStore, redis }) {
   return async function handleRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -69,6 +74,20 @@ function createRequestHandler({ postsStore, redis }) {
       if (req.method === 'POST' && likedPostId) {
         const session = getSession(req);
         const result = await postsStore.likePost(likedPostId, session.id);
+
+        if (!result) {
+          sendJson(res, 404, { error: 'Post not found' }, session.headers);
+          return;
+        }
+
+        sendJson(res, 200, result, session.headers);
+        return;
+      }
+
+      const dislikedPostId = getDislikePostId(url.pathname);
+      if (req.method === 'POST' && dislikedPostId) {
+        const session = getSession(req);
+        const result = await postsStore.dislikePost(dislikedPostId, session.id);
 
         if (!result) {
           sendJson(res, 404, { error: 'Post not found' }, session.headers);

@@ -5,6 +5,8 @@ const config = {
   maxPosts: Number(process.env.MAX_POSTS ?? 100),
   postTtlDays: Number(process.env.POST_TTL_DAYS ?? 5),
   minLikesToKeepExpiredPost: Number(process.env.MIN_LIKES_TO_KEEP_EXPIRED_POST ?? 50),
+  dislikesToDeletePost: Number(process.env.DISLIKES_TO_DELETE_POST ?? 100),
+  redisPostDislikesKeyPrefix: process.env.REDIS_POST_DISLIKES_KEY_PREFIX || 'mintea:post-dislikes',
   redisPostLikesKeyPrefix: process.env.REDIS_POST_LIKES_KEY_PREFIX || 'mintea:post-likes',
   redisPostsKey: process.env.REDIS_POSTS_KEY || 'mintea:posts',
   redisUrl: process.env.REDIS_URL || 'redis://redis:6379',

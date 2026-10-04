@@ -29,6 +29,18 @@ function createPostsStore(redis) {
     return `${config.redisPostLikesKeyPrefix}:${id}`;
   }
 
+  function getPostDislikesKey(id) {
+    return `${config.redisPostDislikesKeyPrefix}:${id}`;
+  }
+
+  async function deleteVoteSets(ids) {
+    const voteKeys = ids.flatMap((id) => [getPostLikesKey(id), getPostDislikesKey(id)]);
+
+    if (voteKeys.length) {
+      await redis.del(voteKeys);
+    }
+  }
+
   async function readAllPosts() {
     const entries = await redis.lRange(config.redisPostsKey, 0, -1);
     return entries.map(parsePost).filter(Boolean);
@@ -52,15 +64,12 @@ function createPostsStore(redis) {
 
     if (activePosts.length !== posts.length) {
       const activeIds = new Set(activePosts.map((post) => post.id));
-      const expiredLikeKeys = posts
+      const expiredIds = posts
         .filter((post) => post.id && !activeIds.has(post.id))
-        .map((post) => getPostLikesKey(post.id));
+        .map((post) => post.id);
 
       await replacePosts(activePosts);
-
-      if (expiredLikeKeys.length) {
-        await redis.del(expiredLikeKeys);
-      }
+      await deleteVoteSets(expiredIds);
     }
 
     return activePosts;
@@ -100,7 +109,32 @@ function createPostsStore(redis) {
     return { liked: true, post };
   }
 
-  return { addPost, likePost, listPosts };
+  async function dislikePost(id, clientId) {
+    const posts = await cleanupExpiredPosts();
+    const post = posts.find((currentPost) => currentPost.id === id);
+
+    if (!post) {
+      return null;
+    }
+
+    const dislikeResult = await redis.sAdd(getPostDislikesKey(id), clientId);
+    if (dislikeResult === 0) {
+      return { deleted: false, disliked: false, post };
+    }
+
+    post.dislikeCount = Number(post.dislikeCount || 0) + 1;
+
+    if (post.dislikeCount >= config.dislikesToDeletePost) {
+      await replacePosts(posts.filter((currentPost) => currentPost.id !== id));
+      await deleteVoteSets([id]);
+      return { deleted: true, disliked: true, postId: id };
+    }
+
+    await replacePosts(posts);
+    return { deleted: false, disliked: true, post };
+  }
+
+  return { addPost, dislikePost, likePost, listPosts };
 }
 
 module.exports = { createPostsStore };
