@@ -25,6 +25,10 @@ function shouldKeepPost(post, now = Date.now()) {
 }
 
 function createPostsStore(redis) {
+  function getPostLikesKey(id) {
+    return `${config.redisPostLikesKeyPrefix}:${id}`;
+  }
+
   async function readAllPosts() {
     const entries = await redis.lRange(config.redisPostsKey, 0, -1);
     return entries.map(parsePost).filter(Boolean);
@@ -47,7 +51,16 @@ function createPostsStore(redis) {
     const activePosts = posts.filter((post) => shouldKeepPost(post));
 
     if (activePosts.length !== posts.length) {
+      const activeIds = new Set(activePosts.map((post) => post.id));
+      const expiredLikeKeys = posts
+        .filter((post) => post.id && !activeIds.has(post.id))
+        .map((post) => getPostLikesKey(post.id));
+
       await replacePosts(activePosts);
+
+      if (expiredLikeKeys.length) {
+        await redis.del(expiredLikeKeys);
+      }
     }
 
     return activePosts;
@@ -68,7 +81,7 @@ function createPostsStore(redis) {
       .exec();
   }
 
-  async function likePost(id) {
+  async function likePost(id, clientId) {
     const posts = await cleanupExpiredPosts();
     const post = posts.find((currentPost) => currentPost.id === id);
 
@@ -76,10 +89,15 @@ function createPostsStore(redis) {
       return null;
     }
 
+    const likeResult = await redis.sAdd(getPostLikesKey(id), clientId);
+    if (likeResult === 0) {
+      return { liked: false, post };
+    }
+
     post.count = Number(post.count || 0) + 1;
     await replacePosts(posts);
 
-    return post;
+    return { liked: true, post };
   }
 
   return { addPost, likePost, listPosts };

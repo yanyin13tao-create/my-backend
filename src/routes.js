@@ -66,14 +66,22 @@ function createRequestHandler({ postsStore, redis }) {
 
       const likedPostId = getLikePostId(url.pathname);
       if (req.method === 'POST' && likedPostId) {
-        const post = await postsStore.likePost(likedPostId);
+        const body = await readJsonBody(req);
+        const clientId = String(body.clientId || '').trim();
 
-        if (!post) {
+        if (!clientId) {
+          sendJson(res, 400, { error: 'Client id is required.' });
+          return;
+        }
+
+        const result = await postsStore.likePost(likedPostId, clientId);
+
+        if (!result) {
           sendJson(res, 404, { error: 'Post not found' });
           return;
         }
 
-        sendJson(res, 200, { post });
+        sendJson(res, 200, result);
         return;
       }
 
