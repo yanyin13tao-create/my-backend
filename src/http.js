@@ -1,9 +1,10 @@
 const { config } = require('./config');
 
-function sendJson(res, statusCode, payload) {
+function sendJson(res, statusCode, payload, headers = {}) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Cache-Control': 'no-store',
+    ...headers,
   });
   res.end(JSON.stringify(payload));
 }

@@ -1,6 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { readJsonBody, sendJson } = require('./http');
 const { moderatePost } = require('./moderation');
+const { getSession } = require('./session');
 
 function isPostsPath(pathname) {
   return pathname === '/posts' || pathname === '/api/posts';
@@ -66,22 +67,15 @@ function createRequestHandler({ postsStore, redis }) {
 
       const likedPostId = getLikePostId(url.pathname);
       if (req.method === 'POST' && likedPostId) {
-        const body = await readJsonBody(req);
-        const clientId = String(body.clientId || '').trim();
-
-        if (!clientId) {
-          sendJson(res, 400, { error: 'Client id is required.' });
-          return;
-        }
-
-        const result = await postsStore.likePost(likedPostId, clientId);
+        const session = getSession(req);
+        const result = await postsStore.likePost(likedPostId, session.id);
 
         if (!result) {
-          sendJson(res, 404, { error: 'Post not found' });
+          sendJson(res, 404, { error: 'Post not found' }, session.headers);
           return;
         }
 
-        sendJson(res, 200, result);
+        sendJson(res, 200, result, session.headers);
         return;
       }
 
