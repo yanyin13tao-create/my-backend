@@ -24,6 +24,37 @@ function shouldKeepPost(post, now = Date.now()) {
   return now < expiresAt || hasEnoughLikesToKeep;
 }
 
+function clampLimit(limit) {
+  const parsedLimit = Number(limit);
+
+  if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+    return config.defaultPostsPageSize;
+  }
+
+  return Math.min(Math.floor(parsedLimit), config.maxPostsPageSize);
+}
+
+function createCursor(post) {
+  if (!post) {
+    return null;
+  }
+
+  return Buffer.from(`${post.createdAt || ''}|${post.id || ''}`, 'utf8').toString('base64url');
+}
+
+function parseCursor(cursor) {
+  if (!cursor) {
+    return null;
+  }
+
+  try {
+    const [createdAt, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
+    return { createdAt, id };
+  } catch {
+    return null;
+  }
+}
+
 function createPostsStore(redis) {
   function getPostLikesKey(id) {
     return `${config.redisPostLikesKeyPrefix}:${id}`;
@@ -58,6 +89,14 @@ function createPostsStore(redis) {
     await transaction.exec();
   }
 
+  async function bumpVersion() {
+    await redis.incr(config.redisPostsVersionKey);
+  }
+
+  async function getVersion() {
+    return (await redis.get(config.redisPostsVersionKey)) || '0';
+  }
+
   async function cleanupExpiredPosts() {
     const posts = await readAllPosts();
     const activePosts = posts.filter((post) => shouldKeepPost(post));
@@ -70,14 +109,60 @@ function createPostsStore(redis) {
 
       await replacePosts(activePosts);
       await deleteVoteSets(expiredIds);
+      await bumpVersion();
     }
 
     return activePosts;
   }
 
-  async function listPosts() {
+  function getPage(posts, { before, limit }) {
+    const pageSize = clampLimit(limit);
+    const cursor = parseCursor(before);
+    let startIndex = 0;
+
+    if (cursor) {
+      const cursorTime = new Date(cursor.createdAt).getTime();
+      const cursorIndex = posts.findIndex((post) => post.id === cursor.id);
+
+      if (cursorIndex >= 0) {
+        startIndex = cursorIndex + 1;
+      } else if (!Number.isNaN(cursorTime)) {
+        startIndex = posts.findIndex((post) => new Date(post.createdAt).getTime() < cursorTime);
+        if (startIndex < 0) {
+          startIndex = posts.length;
+        }
+      }
+    }
+
+    const pagePosts = posts.slice(startIndex, startIndex + pageSize);
+    const hasMore = startIndex + pageSize < posts.length;
+
+    return {
+      hasMore,
+      nextCursor: hasMore ? createCursor(pagePosts[pagePosts.length - 1]) : null,
+      posts: pagePosts,
+    };
+  }
+
+  async function listPosts({ before, limit, version } = {}) {
     const posts = await cleanupExpiredPosts();
-    return posts.slice(0, config.maxPosts);
+    const currentVersion = await getVersion();
+
+    if (!before && version && version === currentVersion) {
+      return {
+        hasMore: posts.length > 0,
+        nextCursor: null,
+        posts: [],
+        unchanged: true,
+        version: currentVersion,
+      };
+    }
+
+    return {
+      ...getPage(posts, { before, limit }),
+      unchanged: false,
+      version: currentVersion,
+    };
   }
 
   async function addPost(post) {
@@ -87,6 +172,7 @@ function createPostsStore(redis) {
       .multi()
       .lPush(config.redisPostsKey, JSON.stringify(post))
       .lTrim(config.redisPostsKey, 0, config.maxPosts - 1)
+      .incr(config.redisPostsVersionKey)
       .exec();
   }
 
@@ -105,6 +191,7 @@ function createPostsStore(redis) {
 
     post.count = Number(post.count || 0) + 1;
     await replacePosts(posts);
+    await bumpVersion();
 
     return { liked: true, post };
   }
@@ -127,10 +214,12 @@ function createPostsStore(redis) {
     if (post.dislikeCount >= config.dislikesToDeletePost) {
       await replacePosts(posts.filter((currentPost) => currentPost.id !== id));
       await deleteVoteSets([id]);
+      await bumpVersion();
       return { deleted: true, disliked: true, postId: id };
     }
 
     await replacePosts(posts);
+    await bumpVersion();
     return { deleted: false, disliked: true, post };
   }
 

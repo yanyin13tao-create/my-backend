@@ -33,8 +33,12 @@ function createRequestHandler({ postsStore, redis }) {
       }
 
       if (req.method === 'GET' && isPostsPath(url.pathname)) {
-        const posts = await postsStore.listPosts();
-        sendJson(res, 200, { posts });
+        const result = await postsStore.listPosts({
+          before: url.searchParams.get('before'),
+          limit: url.searchParams.get('limit'),
+          version: url.searchParams.get('version'),
+        });
+        sendJson(res, 200, result);
         return;
       }
 
