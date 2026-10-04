@@ -23,6 +23,8 @@ services:
       PORT: "3000"
       REDIS_URL: redis://redis:6379
       MAX_POSTS: "100"
+      POST_TTL_DAYS: "5"
+      MIN_LIKES_TO_KEEP_EXPIRED_POST: "50"
     depends_on:
       redis:
         condition: service_healthy

@@ -6,6 +6,11 @@ function isPostsPath(pathname) {
   return pathname === '/posts' || pathname === '/api/posts';
 }
 
+function getLikePostId(pathname) {
+  const match = pathname.match(/^\/(?:api\/)?posts\/([^/]+)\/like$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 function createRequestHandler({ postsStore, redis }) {
   return async function handleRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -56,6 +61,19 @@ function createRequestHandler({ postsStore, redis }) {
 
         await postsStore.addPost(post);
         sendJson(res, 201, { approved: true, post });
+        return;
+      }
+
+      const likedPostId = getLikePostId(url.pathname);
+      if (req.method === 'POST' && likedPostId) {
+        const post = await postsStore.likePost(likedPostId);
+
+        if (!post) {
+          sendJson(res, 404, { error: 'Post not found' });
+          return;
+        }
+
+        sendJson(res, 200, { post });
         return;
       }
 

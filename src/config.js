@@ -3,6 +3,8 @@ const config = {
   port: Number(process.env.PORT ?? 3000),
   maxBodyBytes: 16 * 1024,
   maxPosts: Number(process.env.MAX_POSTS ?? 100),
+  postTtlDays: Number(process.env.POST_TTL_DAYS ?? 5),
+  minLikesToKeepExpiredPost: Number(process.env.MIN_LIKES_TO_KEEP_EXPIRED_POST ?? 50),
   redisPostsKey: process.env.REDIS_POSTS_KEY || 'mintea:posts',
   redisUrl: process.env.REDIS_URL || 'redis://redis:6379',
 };
