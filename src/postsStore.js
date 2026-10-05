@@ -55,7 +55,7 @@ function parseCursor(cursor) {
   }
 }
 
-function createPostsStore(redis) {
+function createPostsStore(redis, { commentsStore } = {}) {
   function getPostLikesKey(id) {
     return `${config.redisPostLikesKeyPrefix}:${id}`;
   }
@@ -108,6 +108,9 @@ function createPostsStore(redis) {
         .map((post) => post.id);
 
       await replacePosts(activePosts);
+      if (commentsStore) {
+        await commentsStore.deleteCommentsForPosts(expiredIds);
+      }
       await deleteVoteSets(expiredIds);
       await bumpVersion();
     }
@@ -240,6 +243,9 @@ function createPostsStore(redis) {
 
     if (post.dislikeCount >= config.dislikesToDeletePost) {
       await replacePosts(posts.filter((currentPost) => currentPost.id !== id));
+      if (commentsStore) {
+        await commentsStore.deleteCommentsForPosts([id]);
+      }
       await deleteVoteSets([id]);
       await bumpVersion();
       return { deleted: true, disliked: true, liked: false, postId: id };

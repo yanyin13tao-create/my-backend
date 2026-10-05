@@ -1,6 +1,7 @@
 const { randomUUID } = require('node:crypto');
+const { config } = require('./config');
 const { readJsonBody, sendJson } = require('./http');
-const { moderatePost } = require('./moderation');
+const { moderateComment, moderatePost } = require('./moderation');
 const { getSession } = require('./session');
 
 function isPostsPath(pathname) {
@@ -17,7 +18,63 @@ function getDislikePostId(pathname) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-function createRequestHandler({ postsStore, redis }) {
+function getCommentsPostId(pathname) {
+  const match = pathname.match(/^\/(?:api\/)?posts\/([^/]+)\/comments$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function normalizeAttachments(value, limit) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .slice(0, limit)
+    .map((attachment) => ({
+      fileId: String(attachment.fileId || attachment.id || '').trim(),
+      kind: 'image',
+      mimeType: String(attachment.mimeType || ''),
+      thumbnailFileId: String(attachment.thumbnailFileId || attachment.fileId || attachment.id || '').trim(),
+    }))
+    .filter((attachment) => /^[a-f0-9-]{36}$/i.test(attachment.fileId));
+}
+
+function decorateAttachment(attachment) {
+  const fileId = attachment.fileId || attachment.id;
+  const thumbnailFileId = attachment.thumbnailFileId || fileId;
+
+  return {
+    ...attachment,
+    fileId,
+    thumbnailFileId,
+    url: `${config.fileServicePublicUrl}/files/${encodeURIComponent(fileId)}`,
+    thumbnailUrl: `${config.fileServicePublicUrl}/files/${encodeURIComponent(thumbnailFileId)}`,
+  };
+}
+
+async function decoratePost(post, commentsStore) {
+  return {
+    ...post,
+    attachments: Array.isArray(post.attachments) ? post.attachments.map(decorateAttachment) : [],
+    commentCount: await commentsStore.getCommentCount(post.id),
+  };
+}
+
+function decorateComment(comment) {
+  return {
+    ...comment,
+    attachments: Array.isArray(comment.attachments) ? comment.attachments.map(decorateAttachment) : [],
+  };
+}
+
+async function decoratePostsResult(result, commentsStore) {
+  return {
+    ...result,
+    posts: await Promise.all(result.posts.map((post) => decoratePost(post, commentsStore))),
+  };
+}
+
+function createRequestHandler({ commentsStore, postsStore, redis }) {
   return async function handleRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
@@ -38,7 +95,7 @@ function createRequestHandler({ postsStore, redis }) {
           limit: url.searchParams.get('limit'),
           version: url.searchParams.get('version'),
         });
-        sendJson(res, 200, result);
+        sendJson(res, 200, await decoratePostsResult(result, commentsStore));
         return;
       }
 
@@ -47,6 +104,7 @@ function createRequestHandler({ postsStore, redis }) {
         const story = String(body.story || '').trim();
         const author = String(body.author || '').trim() || 'Anonymous Victim';
         const category = String(body.category || 'ghosted').trim();
+        const attachments = normalizeAttachments(body.attachments, config.maxAttachmentsPerPost);
 
         if (!story) {
           sendJson(res, 400, { approved: false, reason: 'Story is required.' });
@@ -66,11 +124,65 @@ function createRequestHandler({ postsStore, redis }) {
           author,
           count: 0,
           story,
+          attachments,
+          commentCount: 0,
           createdAt: new Date().toISOString(),
         };
 
         await postsStore.addPost(post);
         sendJson(res, 201, { approved: true, post });
+        return;
+      }
+
+      const commentsPostId = getCommentsPostId(url.pathname);
+      if (req.method === 'GET' && commentsPostId) {
+        const comments = await commentsStore.listComments(commentsPostId, {
+          before: url.searchParams.get('before'),
+          limit: url.searchParams.get('limit'),
+        });
+        sendJson(res, 200, {
+          ...comments,
+          comments: comments.comments.map(decorateComment),
+        });
+        return;
+      }
+
+      if (req.method === 'POST' && commentsPostId) {
+        const body = await readJsonBody(req);
+        const commentBody = String(body.body || '').trim();
+        const author = String(body.author || '').trim() || 'Anonymous Victim';
+        const attachments = normalizeAttachments(body.attachments, config.maxAttachmentsPerComment);
+
+        if (!commentBody && attachments.length === 0) {
+          sendJson(res, 400, { approved: false, reason: 'Comment text or image is required.' });
+          return;
+        }
+
+        const postsResult = await postsStore.listPosts({ limit: config.maxPostsPageSize });
+        const postExists = postsResult.posts.some((post) => post.id === commentsPostId);
+
+        if (!postExists) {
+          sendJson(res, 404, { error: 'Post not found' });
+          return;
+        }
+
+        const moderation = moderateComment({ body: commentBody, author });
+        if (!moderation.approved) {
+          sendJson(res, 422, moderation);
+          return;
+        }
+
+        const comment = {
+          id: randomUUID(),
+          postId: commentsPostId,
+          author,
+          body: commentBody,
+          attachments,
+          createdAt: new Date().toISOString(),
+        };
+
+        await commentsStore.addComment(comment);
+        sendJson(res, 201, { approved: true, comment: decorateComment(comment) });
         return;
       }
 
@@ -84,6 +196,9 @@ function createRequestHandler({ postsStore, redis }) {
           return;
         }
 
+        if (result.post) {
+          result.post = await decoratePost(result.post, commentsStore);
+        }
         sendJson(res, 200, result, session.headers);
         return;
       }
@@ -98,6 +213,9 @@ function createRequestHandler({ postsStore, redis }) {
           return;
         }
 
+        if (result.post) {
+          result.post = await decoratePost(result.post, commentsStore);
+        }
         sendJson(res, 200, result, session.headers);
         return;
       }

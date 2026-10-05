@@ -17,4 +17,8 @@ function moderatePost({ story, author }) {
   return { approved: true };
 }
 
-module.exports = { moderatePost };
+function moderateComment({ body, author }) {
+  return moderatePost({ story: body, author });
+}
+
+module.exports = { moderateComment, moderatePost };
